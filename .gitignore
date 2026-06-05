@@ -171,7 +171,10 @@ cython_debug/
 # Ragas specific
 _experiments/
 **/fil-result/
-src/ragas/_version.py
+# NOTE: src/ragas/_version.py is intentionally NOT ignored here. Upstream ragas
+# generates it via setuptools-scm and gitignores it; this plugin builds with
+# hatchling (no setuptools-scm), so we ship a static _version.py and MUST commit
+# it — otherwise a fresh clone is missing it and `import ragas._version` fails.
 experimental/ragas_experimental/_version.py
 examples/ragas_examples/_version.py
 .vscode

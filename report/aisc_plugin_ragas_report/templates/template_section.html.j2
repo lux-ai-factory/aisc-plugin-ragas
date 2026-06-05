@@ -1,0 +1,100 @@
+{# MLA-Ragas report section. #}
+{% macro num(v, dp=3) -%}
+  {%- if v is none -%}N/A{%- else -%}{{ ("%.{}f".format(dp)) | format(v) }}{%- endif -%}
+{%- endmacro %}
+{% macro intval(v) -%}
+  {%- if v is none -%}N/A{%- else -%}{{ v | int }}{%- endif -%}
+{%- endmacro %}
+
+{% set s = statistics.summary %}
+
+<div class="tool-section">
+  <h3>{{ tool_name | default('MLA RAGAS') }} &mdash; RAG Quality Assessment</h3>
+  <p class="note">
+    MLA-Ragas evaluates the quality of your Retrieval-Augmented Generation (RAG) pipeline
+    using automated LLM-as-a-judge metrics based on the RAGAS framework.
+  </p>
+
+  <h4>Executive Summary</h4>
+  <div class="executive-summary">
+    <div class="summary-container">
+      <div class="summary-column left-column">
+        <div class="summary-stats">
+          <div class="stat-box">
+            <strong>Total samples evaluated</strong>
+            <span class="stat-value">{{ intval(s.total_runs) }}</span>
+          </div>
+          <div class="stat-box">
+            <strong>Overall Score</strong>
+            <span class="stat-value">{{ num(s.overall_score) }}</span>
+          </div>
+          <div class="stat-box">
+            <strong>Response Relevancy</strong>
+            <span class="stat-value">{{ num(s.response_relevancy) }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="summary-column right-column">
+        <div class="summary-stats">
+          <div class="stat-box">
+            <strong>Faithfulness</strong>
+            <span class="stat-value">{{ num(s.faithfulness) }}</span>
+          </div>
+          <div class="stat-box">
+            <strong>Context Precision</strong>
+            <span class="stat-value">{{ num(s.context_precision) }}</span>
+          </div>
+          <div class="stat-box">
+            <strong>Context Recall</strong>
+            <span class="stat-value">{{ num(s.context_recall) }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% include 'tool_plots_subsection.html.j2' %}
+
+  <h4>Quality metrics</h4>
+  <table>
+    <thead>
+      <tr>
+        <th>Metric</th>
+        <th>Value</th>
+        <th>Why it matters</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>overall_score</code></td>
+        <td>{{ num(s.overall_score) }}</td>
+        <td>Average of all RAGAS metrics. Gives a high-level picture of overall RAG performance.</td>
+      </tr>
+      <tr>
+        <td><code>faithfulness</code></td>
+        <td>{{ num(s.faithfulness) }}</td>
+        <td>Measures factual consistency of the generated answer against the retrieved contexts. Lower score means more hallucinations.</td>
+      </tr>
+      <tr>
+        <td><code>context_precision</code></td>
+        <td>{{ num(s.context_precision) }}</td>
+        <td>Measures whether the relevant ground-truth contexts are ranked high in the retrieved documents.</td>
+      </tr>
+      <tr>
+        <td><code>context_recall</code></td>
+        <td>{{ num(s.context_recall) }}</td>
+        <td>Measures whether all necessary information required to answer the question was actually retrieved.</td>
+      </tr>
+      <tr>
+        <td><code>response_relevancy</code></td>
+        <td>{{ num(s.response_relevancy) }}</td>
+        <td>Measures how relevant the generated response is to the initial question. Avoids evasive or off-topic answers.</td>
+      </tr>
+      <tr>
+        <td><code>noise_sensitivity</code></td>
+        <td>{{ num(s.noise_sensitivity) }}</td>
+        <td>Measures how easily the generator is distracted by irrelevant information in the retrieved contexts.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
