@@ -3,9 +3,9 @@ name = "aisc-plugin-ragas"
 version = "0.1.0"
 description = "AISC evaluation plugin wrapping the ragas RAG-evaluation library (vendored in this repo)."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
-    "aisc-plugin-interface @ git+https://github.com/lux-ai-factory/aisc-plugin-interface.git@v0.2.4",
+    "aisc-plugin-interface>=0.2.5",
     # --- wrapper deps ---
     "pandas>=2.0.0",
     "requests>=2.32.0",
@@ -40,9 +40,6 @@ dependencies = [
     "langchain-openai",
 ]
 
-[project.optional-dependencies]
-report = ["vera-report-plugin-interface", "sqlalchemy>=2.0.48", "jinja2>=3.1"]
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -54,10 +51,6 @@ allow-direct-references = true
 # One wheel = vendored ragas library (the tool) + AISC wrapper + report module.
 packages = [
     "src/ragas",
-    "src/aisc_plugin_ragas",
-    "report/aisc_plugin_ragas_report",
+    "src/aisc_plugin_ragas"
 ]
 
-[tool.uv.sources]
-aisc-plugin-interface = { git = "https://github.com/lux-ai-factory/aisc-plugin-interface.git", tag = "v0.2.4" }
-vera-report-plugin-interface = { git = "https://github.com/lux-ai-factory/vera-report-plugin-interface" }
