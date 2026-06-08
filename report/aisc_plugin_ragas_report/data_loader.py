@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from resources.sql_alchemy import Measurement, Metric, Observation
 
 PER_RUN_METRICS = (
-    "MLA RAGAS Run Success",
+    "RAGAS Run Success",
     "RAGAS Overall Score",
     "RAGAS Faithfulness",
     "RAGAS Context Recall",
@@ -17,7 +17,7 @@ PER_RUN_METRICS = (
     "RAGAS Response Relevancy",
 )
 
-class MLARagasDataLoader:
+class RagasDataLoader:
     def __init__(self, db_session: Session | None = None):
         if not db_session:
             raise RuntimeError("No database session available")
@@ -65,7 +65,7 @@ class MLARagasDataLoader:
             "context_precision": self._avg(scores.get("RAGAS Context Precision", [])),
             "noise_sensitivity": self._avg(scores.get("RAGAS Noise Sensitivity", [])),
             "response_relevancy": self._avg(scores.get("RAGAS Response Relevancy", [])),
-            "success_rate": self._avg(scores.get("MLA RAGAS Run Success", [])),
+            "success_rate": self._avg(scores.get("RAGAS Run Success", [])),
         }
 
         counts = {

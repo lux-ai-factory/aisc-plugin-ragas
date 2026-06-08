@@ -1,0 +1,20 @@
+[
+  {
+    "user_input": "What is the capital of Germany?",
+    "retrieved_contexts": [
+      "Berlin is the capital and largest city of Germany.",
+      "Germany is a country in Central Europe."
+    ],
+    "response": "Berlin is the capital of Germany.",
+    "reference": "Berlin is the capital of Germany."
+  },
+  {
+    "user_input": "How many moons does Mars have?",
+    "retrieved_contexts": [
+      "Mars has two small moons, Phobos and Deimos.",
+      "Phobos orbits closer to Mars than Deimos."
+    ],
+    "response": "Mars has two moons, Phobos and Deimos.",
+    "reference": "Mars has two moons: Phobos and Deimos."
+  }
+]
