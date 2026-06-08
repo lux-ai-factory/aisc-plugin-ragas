@@ -1,4 +1,4 @@
-"""MLA-RAGAS plugin — Mode 1 (eval-only).
+"""RAGAS plugin — Mode 1 (eval-only).
 
 User supplies a 4-column dataset (user_input, retrieved_contexts, response,
 reference) + judge LLM credentials + embedding choice. Plugin calls
@@ -64,32 +64,130 @@ from aisc_plugin_interface import (
 )
 from aisc_plugin_interface.models.measure import Measure
 
-from .form_schema import MLARagasConfig
+from .form_schema import RagasConfig
 from .json_input_provider import RawBytesProvider
 
 
 def _error_result(msg: str) -> dict:
-    print(f"[MLA-RAGAS] ERROR: {msg}", file=sys.stderr)
+    print(f"[RAGAS] ERROR: {msg}", file=sys.stderr)
     return {"error": msg, "success": False, "summary": [], "full_results": []}
+
+
+def _load_dataset_frame(raw: bytes) -> pd.DataFrame:
+    """Turn the uploaded dataset bytes into a DataFrame, accepting JSON or CSV.
+
+    We sniff the content rather than trust a file extension: a JSON dataset
+    parses cleanly into a DataFrame, and anything that isn't JSON falls back to
+    CSV. Either way we end up with the same 4 columns (user_input,
+    retrieved_contexts, response, reference). JSON keeps retrieved_contexts as a
+    native list per row; CSV keeps the existing JSON-array / '||'-delimited
+    conventions, which parse_contexts handles downstream.
+
+    Accepted JSON shapes:
+      - a top-level list of row objects: [{"user_input": ...}, ...]
+      - an object wrapping the rows under "data"/"rows"/"samples"/"records"
+      - an object of equal-length columns: {"user_input": [...], ...}
+    """
+    import json
+
+    text = raw.decode("utf-8", errors="replace").lstrip("﻿").strip()
+
+    # Try JSON first. Only the obvious JSON openers are worth attempting, so a
+    # normal CSV (which never starts with { or [) skips straight to read_csv.
+    if text[:1] in ("[", "{"):
+        try:
+            parsed = json.loads(text)
+        except Exception as exc:
+            raise ValueError(
+                f"Dataset looked like JSON but failed to parse: {exc}"
+            ) from exc
+
+        rows = parsed
+        if isinstance(parsed, dict):
+            for key in ("data", "rows", "samples", "records"):
+                if isinstance(parsed.get(key), list):
+                    rows = parsed[key]
+                    break
+
+        if isinstance(rows, list):
+            if not rows:
+                raise ValueError("JSON dataset is empty (no rows).")
+            return pd.DataFrame(rows)
+        if isinstance(rows, dict):
+            # Column-oriented object, e.g. {"user_input": [...], "response": [...]}.
+            return pd.DataFrame(rows)
+        raise ValueError(
+            "Unrecognized JSON dataset shape. Expected a list of row objects, "
+            "an object with a 'data'/'rows'/'samples'/'records' list, or an "
+            "object of equal-length columns."
+        )
+
+    # Not JSON -> treat as CSV (the original, still-supported path).
+    return pd.read_csv(_io.BytesIO(raw))
 
 
 @evaluation_input(
     name="dataset-file",
-    label="RAG eval dataset CSV (columns: user_input, retrieved_contexts, response, reference)",
+    label="RAG eval dataset, CSV or JSON (columns: user_input, retrieved_contexts, response, reference)",
     input_provider_class=RawBytesProvider,
     input_type=InputType.DATASET,
     required=True,
 )
-class RagasPlugin(BaseEvaluationPlugin[MLARagasConfig]):
+class RagasPlugin(BaseEvaluationPlugin[RagasConfig]):
     plugin_name = "RAGAS"
     ui_icon = "assessment"
 
     form_ui_schema = {
         "evaluator_llm_api_key": {"ui:widget": "password"},
         "embeddings_api_key": {"ui:widget": "password"},
-        "llm_factory_url": {"ui:placeholder": "http://host.docker.internal:5001"},
         "evaluator_llm_base_url": {"ui:placeholder": "http://localhost:11434/v1"},
     }
+
+    def on_config_change(self, form_data):
+        """Show only the credential fields that the current providers actually use.
+
+        The judge-LLM and embeddings sections each carry fields that only make
+        sense for one provider. Rather than show everything and hope the user
+        ignores the irrelevant boxes, we drop the unused ones from the schema and
+        from form_data so nothing stale gets persisted.
+
+        Rules:
+          - evaluator_llm_provider == "openai_compat": show the base URL, hide the
+            API key (a local/compat endpoint usually needs the URL, not a key).
+            Any other provider: hide the base URL, show the API key.
+          - embeddings_api_key is only relevant for embeddings_provider == "openai".
+        """
+        schema, ui_schema = self.get_full_schema()
+        props = schema.get("properties", {})
+        required = schema.get("required", [])
+
+        def read(field: str, default: str) -> str:
+            if isinstance(form_data, dict):
+                return form_data.get(field) or default
+            if form_data is not None:
+                return getattr(form_data, field, default) or default
+            return default
+
+        def hide(field: str) -> None:
+            props.pop(field, None)
+            if field in required:
+                required.remove(field)
+            ui_schema.setdefault(field, {})["ui:widget"] = "hidden"
+            if isinstance(form_data, dict):
+                form_data.pop(field, None)
+
+        evaluator_provider = read("evaluator_llm_provider", "openai")
+        embeddings_provider = read("embeddings_provider", "hf_local")
+
+        if evaluator_provider == "openai_compat":
+            hide("evaluator_llm_api_key")
+        else:
+            hide("evaluator_llm_base_url")
+
+        if embeddings_provider != "openai":
+            hide("embeddings_api_key")
+
+        return form_data, schema, ui_schema
 
     def evaluate(self, config_data: dict) -> Any:
         import sys
@@ -98,35 +196,21 @@ class RagasPlugin(BaseEvaluationPlugin[MLARagasConfig]):
         except Exception as exc:
             import traceback
             tb = traceback.format_exc()
-            print(f"[MLA-RAGAS] Unhandled exception:\n{tb}", file=sys.stderr)
+            print(f"[RAGAS] Unhandled exception:\n{tb}", file=sys.stderr)
             return _error_result(str(exc))
 
     def get_metric_visualizations(self, config_data: dict) -> list[MetricVisualization]:
-        # Charts (BARS + RADAR) plot the 5 aggregate means → at-a-glance
-        # scorecard.
-        # TABLE shows per-question rows (5 metrics × N questions) → drill-down.
-        aggregate_metrics = [
-            "RAGAS Faithfulness",
-            "RAGAS Context Recall",
-            "RAGAS Context Precision",
-            "RAGAS Noise Sensitivity",
-            "RAGAS Response Relevancy",
-        ]
-        per_sample_metrics = [
-            "RAGAS Faithfulness Per Sample",
-            "RAGAS Context Recall Per Sample",
-            "RAGAS Context Precision Per Sample",
-            "RAGAS Noise Sensitivity Per Sample",
-            "RAGAS Response Relevancy Per Sample",
-        ]
+        # No charts. The 5 aggregate means already render as KPI cards at the top
+        # of the results, and the full per-sample breakdown — every column
+        # (user_input, response, retrieved_contexts, reference, and each metric's
+        # score) — is the `ragas_evaluation.csv` artifact, which renders as a
+        # complete table. A measurement-based per-sample table can only show
+        # name/score and drops those columns, so we don't render it here.
         return [
-            MetricVisualization(chart_type=ChartType.BARS, metrics=aggregate_metrics),
-            MetricVisualization(chart_type=ChartType.RADAR, metrics=aggregate_metrics),
             MetricVisualization(chart_type=ChartType.TABLE, metrics=[
                 "RAGAS Overall Score",
-                "MLA RAGAS Run Success",
+                "RAGAS Run Success",
             ]),
-            MetricVisualization(chart_type=ChartType.TABLE, metrics=per_sample_metrics),
         ]
 
     def _run_evaluation(self, config_data: dict) -> Any:
@@ -136,12 +220,12 @@ class RagasPlugin(BaseEvaluationPlugin[MLARagasConfig]):
 
         dataset_bytes: bytes | None = self.get_input_data("dataset-file")
         if not dataset_bytes:
-            return _error_result("No dataset CSV uploaded.")
+            return _error_result("No dataset uploaded.")
 
         try:
-            dataset_df = pd.read_csv(_io.BytesIO(dataset_bytes))
+            dataset_df = _load_dataset_frame(dataset_bytes)
         except Exception as exc:
-            return _error_result(f"Failed to parse dataset CSV: {exc}")
+            return _error_result(f"Failed to parse dataset: {exc}")
 
         required_cols = {"user_input", "retrieved_contexts", "response", "reference"}
         missing = required_cols - set(dataset_df.columns)
@@ -152,7 +236,7 @@ class RagasPlugin(BaseEvaluationPlugin[MLARagasConfig]):
             )
 
         self.report_progress(TaskProgress(progress=0.15, extra={"stage": "dataset_loaded"}))
-        print(f"[MLA-RAGAS] Dataset loaded: {len(dataset_df)} samples.", file=sys.stderr)
+        print(f"[RAGAS] Dataset loaded: {len(dataset_df)} samples.", file=sys.stderr)
 
         self.report_progress(TaskProgress(progress=0.25, extra={"stage": "building_judge_llm"}))
         judge_llm = self._build_judge_llm(config)
@@ -230,7 +314,7 @@ class RagasPlugin(BaseEvaluationPlugin[MLARagasConfig]):
                             return v.strip().strip('"').strip("'")
         return ""
 
-    def _build_judge_llm(self, config: MLARagasConfig):
+    def _build_judge_llm(self, config: RagasConfig):
         provider = (config.evaluator_llm_provider or "").strip()
         model = (config.evaluator_llm_model or "").strip()
         api_key = (config.evaluator_llm_api_key or "").strip()
@@ -271,17 +355,9 @@ class RagasPlugin(BaseEvaluationPlugin[MLARagasConfig]):
                 timeout=60,
                 max_retries=10,
             )
-        if provider == "llm_factory":
-            from .llm_factory_wrapper import LLMFactoryChat
-            llm_url = (config.llm_factory_url or "").strip()
-            if Path("/.dockerenv").exists() and "localhost" in llm_url:
-                llm_url = llm_url.replace("localhost", "host.docker.internal")
-            return LLMFactoryChat(
-                llm_factory_url=llm_url, model_name=model, temperature=0, max_tokens=512,
-            )
         raise ValueError(f"Unknown evaluator_llm_provider: {provider}")
 
-    def _build_embeddings(self, config: MLARagasConfig):
+    def _build_embeddings(self, config: RagasConfig):
         provider = (config.embeddings_provider or "").strip()
         model = (config.embeddings_model or "").strip()
         api_key = (config.embeddings_api_key or "").strip()
@@ -302,7 +378,7 @@ class RagasPlugin(BaseEvaluationPlugin[MLARagasConfig]):
     # Ragas wrapping
     # -----------------------------------------------------------------------
 
-    def _run_ragas(self, dataset_df: pd.DataFrame, judge_llm, embeddings, config: MLARagasConfig) -> pd.DataFrame:
+    def _run_ragas(self, dataset_df: pd.DataFrame, judge_llm, embeddings, config: RagasConfig) -> pd.DataFrame:
         from datasets import Dataset
         from ragas import evaluate
         from ragas.run_config import RunConfig
@@ -365,13 +441,13 @@ class RagasPlugin(BaseEvaluationPlugin[MLARagasConfig]):
     # Metric reporters (per-language preserved for output compat)
     # -----------------------------------------------------------------------
 
-    @metric("MLA RAGAS Run Success")
+    @metric("RAGAS Run Success")
     def run_success(self, evaluation_output: Any) -> list[Measure]:
         success = evaluation_output.get("success", False)
         err = evaluation_output.get("error") if not success else None
         return [
             Measure(
-                name="MLA RAGAS Run Success",
+                name="RAGAS Run Success",
                 score=1.0 if success else 0.0,
                 description="Indicates if the evaluation run was successful (1.0) or unsuccessful (0.0).",
                 error=err,
@@ -533,11 +609,11 @@ class RagasPlugin(BaseEvaluationPlugin[MLARagasConfig]):
             score = float(val) if valid else 0.0
             coverage_note = f"({n_computed}/{total} scored)" if total else ""
             desc_mapping = {
-                "faithfulness": "Measures how factual the generated answer is relative to the retrieved contexts (higher score indicates fewer hallucinations).",
-                "context_recall": "Measures whether all necessary information required to answer the question was retrieved by the retriever.",
-                "context_precision": "Measures whether the retrieved contexts containing the relevant ground truth information are ranked higher than irrelevant ones.",
-                "noise_sensitivity": "Measures how sensitive the generator is to irrelevant information in retrieved contexts.",
-                "response_relevancy": "Measures how relevant the generated response is to the input question.",
+                "faithfulness": "How factually grounded the answer is in the retrieved contexts. Higher is better (fewer hallucinations).",
+                "context_recall": "Whether the retriever pulled in all the information needed to answer the question. Higher is better.",
+                "context_precision": "Whether the contexts holding the relevant ground-truth info are ranked above the irrelevant ones. Higher is better.",
+                "noise_sensitivity": "How easily irrelevant retrieved context throws the answer off. Lower is better (the inverse of the other four).",
+                "response_relevancy": "How well the answer actually addresses the question. Higher is better.",
             }
             base_desc = desc_mapping.get(col, "Aggregate Average")
             desc = f"{base_desc} {coverage_note}" if coverage_note else base_desc

@@ -1,0 +1,3 @@
+user_input,retrieved_contexts,response,reference
+"What is the capital of Germany?","[""Berlin is the capital and largest city of Germany."", ""Germany is a country in Central Europe.""]","Berlin is the capital of Germany.","Berlin is the capital of Germany."
+"How many moons does Mars have?","[""Mars has two small moons, Phobos and Deimos."", ""Phobos orbits closer to Mars than Deimos.""]","Mars has two moons, Phobos and Deimos.","Mars has two moons: Phobos and Deimos."

@@ -1,4 +1,4 @@
-{# MLA-Ragas report section. #}
+{# Ragas report section. #}
 {% macro num(v, dp=3) -%}
   {%- if v is none -%}N/A{%- else -%}{{ ("%.{}f".format(dp)) | format(v) }}{%- endif -%}
 {%- endmacro %}
@@ -9,9 +9,9 @@
 {% set s = statistics.summary %}
 
 <div class="tool-section">
-  <h3>{{ tool_name | default('MLA RAGAS') }} &mdash; RAG Quality Assessment</h3>
+  <h3>{{ tool_name | default('RAGAS') }} &mdash; RAG Quality Assessment</h3>
   <p class="note">
-    MLA-Ragas evaluates the quality of your Retrieval-Augmented Generation (RAG) pipeline
+    Ragas evaluates the quality of your Retrieval-Augmented Generation (RAG) pipeline
     using automated LLM-as-a-judge metrics based on the RAGAS framework.
   </p>
 

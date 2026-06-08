@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 
 # =============================================================================
-# MLA-RAGAS plugin config (Mode 1: Eval-only).
+# RAGAS plugin config (Mode 1: Eval-only).
 #
 # Mode 1: user supplies a pre-generated RAG dataset (4-column: user_input,
 # retrieved_contexts, response, reference) + judge LLM credentials. Plugin
@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 # =============================================================================
 
 
-class MLARagasConfig(BaseModel):
+class RagasConfig(BaseModel):
     # -------------------------------------------------------------------------
     # Judge LLM — the LLM ragas uses to score each (Q, ctx, answer, truth) row
     # -------------------------------------------------------------------------
@@ -25,42 +25,40 @@ class MLARagasConfig(BaseModel):
         "google",
         "mistral",
         "openai_compat",
-        "llm_factory",
     ] = Field(
         default="openai",
         description=(
-            "Provider for the judge LLM. "
-            "openai/anthropic/google/mistral use the official cloud API. "
-            "openai_compat = any OpenAI-API-compatible endpoint (Ollama, vLLM, llama.cpp). "
-            "llm_factory = internal proxy."
+            "Which provider runs the judge LLM that scores each row. "
+            "openai, anthropic, google, and mistral call those vendors' official cloud APIs. "
+            "openai_compat points at any OpenAI-compatible endpoint, so it covers local servers "
+            "like Ollama, vLLM, or llama.cpp (set the base URL for it)."
         ),
     )
     evaluator_llm_model: str = Field(
         default="gpt-4o-mini",
         description=(
-            "Model name. Examples: 'gpt-4o-mini' (openai, fast/cheap, all 5 metrics complete), "
+            "Name of the judge model, passed straight through to the provider. "
+            "Examples by provider: 'gpt-4o-mini' (openai, fast and cheap, and reliably completes all 5 metrics), "
             "'claude-3-5-sonnet-latest' (anthropic), 'gemini-1.5-flash' (google), "
-            "'mistral-large-latest' (mistral), 'qwen2.5:7b' (openai_compat / Ollama — faster than llama3 on Mac), "
-            "'llama3:latest' (openai_compat / Ollama — slow on heavy metrics like faithfulness, may return NaN), "
-            "'OpenAIGPT4o' (llm_factory). "
-            "Tradeoff: smaller local models (8B) often timeout on faithfulness + noise_sensitivity + context_precision "
-            "(each needs 3–5 sequential LLM calls per question). Use OpenAI/Anthropic for full coverage."
+            "'mistral-large-latest' (mistral), and 'qwen2.5:7b' or 'llama3:latest' (openai_compat / Ollama). "
+            "Heads up on local models: each question needs several sequential judge calls, and the heavier "
+            "metrics (faithfulness, noise_sensitivity, context_precision) can time out on small 7B-8B models "
+            "and come back as NaN. For full, dependable coverage, reach for a hosted model like OpenAI or Anthropic."
         ),
     )
     evaluator_llm_api_key: str = Field(
         default="",
-        description="API key for the judge LLM provider. Not needed for llm_factory.",
+        description=(
+            "API key for the judge LLM provider. Leave it blank to fall back to the matching key from .env "
+            "or the environment. openai_compat endpoints usually take the base URL instead of a key."
+        ),
     )
     evaluator_llm_base_url: str = Field(
         default="",
         description=(
-            "Base URL for openai_compat provider (e.g. http://localhost:11434/v1 for Ollama). "
-            "Ignored for other providers."
+            "Endpoint URL for the openai_compat provider, for example http://localhost:11434/v1 for Ollama. "
+            "It is only read when the provider is openai_compat and is ignored otherwise."
         ),
-    )
-    llm_factory_url: str = Field(
-        default="http://host.docker.internal:5001",
-        description="Base URL of the LLM Factory service. Only used when evaluator_llm_provider=llm_factory.",
     )
 
     # -------------------------------------------------------------------------
@@ -70,30 +68,44 @@ class MLARagasConfig(BaseModel):
     embeddings_provider: Literal["hf_local", "openai"] = Field(
         default="hf_local",
         description=(
-            "Embedding provider. hf_local = HuggingFace SentenceTransformer running locally (free, slower). "
-            "openai = OpenAI embeddings API (faster, paid)."
+            "Where the embeddings come from. Some metrics, like response relevancy, compare texts by "
+            "cosine similarity and need an embedding model, separate from the judge LLM. "
+            "hf_local runs a HuggingFace SentenceTransformer on the machine itself, which is free but slower. "
+            "openai calls the OpenAI embeddings API, which is faster but paid and needs a key."
         ),
     )
     embeddings_model: str = Field(
         default="BAAI/bge-small-en-v1.5",
         description=(
-            "Embedding model name. HF examples: 'BAAI/bge-small-en-v1.5', 'sentence-transformers/all-MiniLM-L6-v2'. "
-            "OpenAI examples: 'text-embedding-3-small', 'text-embedding-3-large'."
+            "Name of the embedding model, passed straight to the chosen provider. "
+            "For hf_local, try 'BAAI/bge-small-en-v1.5' or 'sentence-transformers/all-MiniLM-L6-v2'. "
+            "For openai, try 'text-embedding-3-small' or 'text-embedding-3-large'."
         ),
     )
     embeddings_api_key: str = Field(
         default="",
-        description="API key for embeddings provider. Required when embeddings_provider=openai. Empty for hf_local.",
+        description=(
+            "API key for the embeddings provider. Needed when the provider is openai, where you can also "
+            "leave it blank to fall back to OPENAI_API_KEY from .env or the environment. "
+            "Leave it empty for hf_local."
+        ),
     )
 
     prompt_language: str = Field(
         default="english",
-        description="The language of the prompts in the dataset. Used for grouping and labeling results in the dashboard.",
+        description=(
+            "Label for the language of the dataset. This is just used to group and tag results in the "
+            "dashboard, it does not change how anything is scored, so any free-text label works."
+        ),
     )
 
     max_workers: int = Field(
         default=1,
-        description="The maximum number of parallel workers for Ragas evaluation. Set to 1 for rate-limited APIs or local models, or increase (e.g., 5-10) for faster cloud executions.",
+        description=(
+            "How many evaluation samples ragas works on in parallel. Keep it at 1 for rate-limited APIs or "
+            "local models, and raise it (say 5 to 10) to speed up runs against cloud providers that can "
+            "handle the concurrency."
+        ),
         ge=1,
     )
 
