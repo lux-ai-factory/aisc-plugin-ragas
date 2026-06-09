@@ -1,3 +1,17 @@
+<!-- PLUGIN-FORK-BANNER -->
+> **AI Assessment Sandbox Configurator — plugin fork.**
+>
+> This repository is the plugin build of Ragas: the original Ragas project, forked and extended
+> with the integration layer (plugin hooks plus the mapping of Ragas's outputs to the Configurator's
+> shared data model) so it can be installed and run as a plugin in the generated sandbox environment. The plugin-specific
+> code and configuration live alongside the upstream sources.
+>
+> **Everything below the line is the original, unmodified Ragas README.**
+
+---
+
+<!-- ===== ORIGINAL Ragas README BELOW ===== -->
+
 <h1 align="center">
   <img style="vertical-align:middle" height="200"
   src="https://raw.githubusercontent.com/vibrantlabsai/ragas/main/docs/_static/imgs/logo.png">
